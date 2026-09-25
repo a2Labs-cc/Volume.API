@@ -1,0 +1,10 @@
+{
+  "commands.volume.open_failed": "Could not open volume menu.",
+  "commands.volume.set_global": "Global volume set to {volume}/10.",
+  "commands.volume.set_feature": "{feature} volume set to {volume}/10.",
+  "commands.volume.save_failed": "Could not save volume; Cookies plugin may be unavailable.",
+  "commands.volume.usage": "Usage: !volume or !vol to open the menu; optionally use <0-10> or <featureKey> <0-10>.",
+  "menus.volume.title": "Sound Volume",
+  "menus.volume.global": "Global",
+  "menus.volume.feature": "{feature} ({featureKey})"
+}

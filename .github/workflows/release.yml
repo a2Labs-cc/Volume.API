@@ -1,0 +1,125 @@
+name: Build and Release
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build]')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from PluginMetadata
+        id: version
+        run: |
+          VERSION=$(sed -n 's/.*Version *= *"\([^"]*\)".*/\1/p' src/Volume.API.cs | head -n 1)
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not find PluginMetadata Version"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
+
+      - name: Restore and publish
+        run: |
+          dotnet restore Volume.API.csproj
+          dotnet publish Volume.API.csproj -c Release --no-restore
+
+      - name: Prepare plugin and contract packages
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p build/package/Volume.API build/package/Volume.Contract release-artifacts
+          cp -a build/publish/Volume.API/. build/package/Volume.API/
+          cp build/package/Volume.API/resources/exports/Volume.Contract.dll build/package/Volume.Contract/
+          test -s build/package/Volume.API/Volume.API.dll
+          test -s build/package/Volume.API/resources/exports/Volume.Contract.dll
+          test -s build/package/Volume.Contract/Volume.Contract.dll
+          (cd build/package && zip -qr "../../release-artifacts/Volume.API-v${VERSION}.zip" Volume.API)
+          (cd build/package && zip -qr "../../release-artifacts/Volume.Contract-v${VERSION}.zip" Volume.Contract)
+
+      - name: Determine release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          BASE_TAG="v${VERSION}"
+          TAG="$BASE_TAG"
+          TITLE="${REPO_NAME} | ${BASE_TAG}"
+          BUILD_NUM=1
+          while gh release view "$TAG" &>/dev/null; do
+            BUILD_NUM=$((BUILD_NUM + 1))
+            TAG="${BASE_TAG}-${BUILD_NUM}"
+            TITLE="${REPO_NAME} | ${BASE_TAG}#${BUILD_NUM}"
+          done
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog
+        id: changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NEW_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          CHANGELOG=""
+          if [ -f CHANGELOG.md ]; then
+            CHANGELOG=$(awk -v ver="$VERSION" '
+              /^## \[/ {
+                if (found) exit
+                if ($0 ~ "\\[v?" ver "\\]") { found=1; next }
+              }
+              found { print }
+            ' CHANGELOG.md)
+          fi
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="Release v$VERSION"
+          fi
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          {
+            echo "body<<EOF"
+            echo "$CHANGELOG"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${NEW_TAG}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          TITLE: ${{ steps.tag.outputs.title }}
+          NOTES: ${{ steps.changelog.outputs.body }}
+        run: |
+          PRERELEASE_FLAG=()
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE_FLAG=(--prerelease)
+          fi
+          gh release create "$TAG" \
+            --title "$TITLE" \
+            --notes "$NOTES" \
+            "${PRERELEASE_FLAG[@]}" \
+            release-artifacts/*.zip
