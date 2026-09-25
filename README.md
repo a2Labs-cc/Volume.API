@@ -26,6 +26,8 @@
 
 Players can set one global volume for all participating sound features or override a particular feature. For example, QuakeSounds registers the feature key `QuakeSounds` with the display name `Quake Sounds`.
 
+> ⚠️ **Cookies is required for volume consistency.** Volume.API delegates all persistence to the [Cookies](https://github.com/SwiftlyS2-Plugins/Cookies) plugin. Without Cookies installed, loaded, and connected to its database, volume changes exist only in memory until the player disconnects or the server restarts; on reconnect or map change they will revert to the default `1.0` (100%).
+
 ## Support
 
 Need help or have questions? Join our Discord server:
@@ -111,7 +113,9 @@ The effective volume for a player and feature is resolved in this order:
 2. The global volume, if set.
 3. `1.0` (100%), if neither is set.
 
-The API uses floats from `0.0` to `1.0`, while commands use integers from `0` to `10`. Settings are stored per Steam ID through Cookies under `Volume.Global` and `Volume.Feature.{featureKey}`. Cookies loads player values on connect, queues writes from `Set` for database saving, and flushes them on disconnect; Volume.API reads those values through Cookies whenever a menu opens or a sound plugin requests a volume. Volume.API does not start a second asynchronous load/save that could race with Cookies. On reconnect or map change the same Steam ID reads the saved values again. No separate Volume.API data store is used. If Cookies is unavailable, reads use the defaults above and setters fail; sound plugins may choose their own fallback when Volume.API itself is unavailable.
+The API uses floats from `0.0` to `1.0`, while commands use integers from `0` to `10`. Settings are stored per Steam ID through Cookies under `Volume.Global` and `Volume.Feature.{featureKey}`. Cookies loads player values on connect, queues writes from `Set` for database saving, and flushes them on disconnect; Volume.API reads those values through Cookies whenever a menu opens or a sound plugin requests a volume. Volume.API does not start a second asynchronous load/save that could race with Cookies. On reconnect or map change the same Steam ID reads the saved values again. No separate Volume.API data store is used.
+
+> ⚠️ **If Cookies is not installed, loaded, or connected to its database, volume changes will not survive disconnect, map change, or server restart.** In that case reads fall back to the defaults above, setters fail, and sound plugins may choose their own fallback when Volume.API itself is unavailable.
 
 ## Using the API in Another Plugin
 
