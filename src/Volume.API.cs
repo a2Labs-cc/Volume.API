@@ -1,17 +1,28 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Plugins;
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using Volume.API.Services;
 using Volume.Contract;
 
 namespace Volume.API;
 
-[PluginMetadata(Id = "Volume.API", Version = "1.0.0", Name = "Volume.API", Author = "aga", Description = "Shared player sound volume")]
+public sealed class VolumeConfig
+{
+    [Description("Default starting volume level (0-10) for players who have not set their own volume.")]
+    public int DefaultVolume { get; set; } = 10;
+}
+
+[PluginMetadata(Id = "Volume.API", Version = "1.0.1", Name = "Volume.API", Author = "aga", Description = "Shared player sound volume")]
 public partial class API : BasePlugin, IPlayerVolumeAPI
 {
     private readonly ConcurrentDictionary<string, VolumeFeatureInfo> _features = new(StringComparer.OrdinalIgnoreCase);
     private PlayerCookiesApiWrapper? _cookies;
+    private IDisposable? _configReloadRegistration;
+    private float _defaultVolume = 1f;
 
     public API(ISwiftlyCore core) : base(core)
     {
@@ -50,6 +61,21 @@ public partial class API : BasePlugin, IPlayerVolumeAPI
 
     public override void Load(bool hotReload)
     {
+        Core.Configuration
+            .InitializeJsonWithModel<VolumeConfig>("config.jsonc", "Main")
+            .Configure(builder =>
+            {
+                builder.AddJsonFile(Core.Configuration.GetConfigPath("config.jsonc"), optional: false, reloadOnChange: true);
+            });
+
+        ReloadConfig();
+
+        _configReloadRegistration?.Dispose();
+        _configReloadRegistration = ChangeToken.OnChange(
+            () => Core.Configuration.Manager.GetReloadToken(),
+            ReloadConfig
+        );
+
         Core.MenusAPI.MenuClosed += OnMenuClosed;
         Core.Event.OnClientDisconnected += OnClientDisconnected;
         Core.Logger.LogInformation("[Volume.API] Plugin loaded.");
@@ -57,6 +83,9 @@ public partial class API : BasePlugin, IPlayerVolumeAPI
 
     public override void Unload()
     {
+        _configReloadRegistration?.Dispose();
+        _configReloadRegistration = null;
+
         Core.MenusAPI.MenuClosed -= OnMenuClosed;
         Core.Event.OnClientDisconnected -= OnClientDisconnected;
         foreach (var menu in _openMenus.Values)
@@ -94,12 +123,12 @@ public partial class API : BasePlugin, IPlayerVolumeAPI
     public IReadOnlyList<VolumeFeatureInfo> GetFeatures() =>
         Array.AsReadOnly(_features.Values.OrderBy(feature => feature.DisplayName, StringComparer.OrdinalIgnoreCase).ToArray());
 
-    public float GetGlobalVolume(long steamId) => TryReadVolume(steamId, "Volume.Global", out var volume) ? volume : 1f;
+    public float GetGlobalVolume(long steamId) => TryReadVolume(steamId, "Volume.Global", out var volume) ? volume : _defaultVolume;
 
     public void SetGlobalVolume(long steamId, float volume) => WriteVolume(steamId, "Volume.Global", volume);
 
     public float GetFeatureVolume(long steamId, string featureKey) =>
-        TryReadVolume(steamId, FeatureKey(featureKey), out var volume) ? volume : 1f;
+        TryReadVolume(steamId, FeatureKey(featureKey), out var volume) ? volume : _defaultVolume;
 
     public void SetFeatureVolume(long steamId, string featureKey, float volume)
     {
@@ -111,6 +140,23 @@ public partial class API : BasePlugin, IPlayerVolumeAPI
 
     public float GetEffectiveVolume(long steamId, string featureKey) =>
         TryReadVolume(steamId, FeatureKey(featureKey), out var volume) ? volume : GetGlobalVolume(steamId);
+
+    private void ReloadConfig()
+    {
+        try
+        {
+            var loaded = Core.Configuration.Manager.GetSection("Main").Get<VolumeConfig>()
+                ?? Core.Configuration.Manager.Get<VolumeConfig>()
+                ?? new VolumeConfig();
+
+            var clampedLevel = Math.Clamp(loaded.DefaultVolume, 0, 10);
+            _defaultVolume = clampedLevel / 10f;
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogWarning(ex, "[Volume.API] Failed to reload configuration; keeping previous default volume ({DefaultVolume}).", _defaultVolume);
+        }
+    }
 
     private string FeatureKey(string featureKey)
     {

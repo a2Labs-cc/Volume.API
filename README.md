@@ -26,7 +26,7 @@
 
 Players can set one global volume for all participating sound features or override a particular feature. For example, QuakeSounds registers the feature key `QuakeSounds` with the display name `Quake Sounds`.
 
-> ⚠️ **Cookies is required for volume consistency.** Volume.API delegates all persistence to the [Cookies](https://github.com/SwiftlyS2-Plugins/Cookies) plugin. Without Cookies installed, loaded, and connected to its database, volume changes exist only in memory until the player disconnects or the server restarts; on reconnect or map change they will revert to the default `1.0` (100%).
+> ⚠️ **Cookies is required for volume consistency.** Volume.API delegates all persistence to the [Cookies](https://github.com/SwiftlyS2-Plugins/Cookies) plugin. Without Cookies installed, loaded, and connected to its database, volume changes exist only in memory until the player disconnects or the server restarts; on reconnect or map change they will revert to the configured default volume (`DefaultVolume` in `config.jsonc`, `10` / 100% by default).
 
 ## Support
 
@@ -105,13 +105,28 @@ Example:
 
 The menu then shows Global at `5/10` and Quake Sounds at `3/10`. Other registered features without an override show `5/10`.
 
+## Configuration
+
+On first load, Volume.API generates `config.jsonc` in the plugin configuration folder:
+
+```jsonc
+{
+  "Main": {
+    // Default starting volume level (0-10) for players who have not set their own volume.
+    "DefaultVolume": 10
+  }
+}
+```
+
+- `DefaultVolume`: Integer from `0` to `10` (clamped if out of range, default `10` = `100%`). Used as the starting volume for players who have not saved a custom volume in Cookies yet. Once a player changes their volume, their saved cookie takes precedence on subsequent joins.
+
 ## Volume Resolution and Persistence
 
 The effective volume for a player and feature is resolved in this order:
 
 1. The feature override, if set.
 2. The global volume, if set.
-3. `1.0` (100%), if neither is set.
+3. The configured `DefaultVolume` (`1.0` / 100% by default), if neither is set.
 
 The API uses floats from `0.0` to `1.0`, while commands use integers from `0` to `10`. Settings are stored per Steam ID through Cookies under `Volume.Global` and `Volume.Feature.{featureKey}`. Cookies loads player values on connect, queues writes from `Set` for database saving, and flushes them on disconnect; Volume.API reads those values through Cookies whenever a menu opens or a sound plugin requests a volume. Volume.API does not start a second asynchronous load/save that could race with Cookies. On reconnect or map change the same Steam ID reads the saved values again. No separate Volume.API data store is used.
 
@@ -191,8 +206,8 @@ Use the returned `GetSoundVolume` value as the **player's playback volume**, inc
 | --- | --- |
 | `RegisterFeature(key, displayName)` / `UnregisterFeature(key)` | Add or remove a feature from `!volume`. |
 | `GetGlobalVolume(steamId)` / `SetGlobalVolume(steamId, volume)` | Read or save the player's global volume. |
-| `GetFeatureVolume(steamId, key)` / `SetFeatureVolume(steamId, key, volume)` | Read or save the feature override; `GetFeatureVolume` returns `1.0` if no override is stored, **not** the global volume. The feature must be registered before setting it. |
-| `GetEffectiveVolume(steamId, key)` | Read the feature override, falling back to the global volume and then `1.0`. Use this for playback. |
+| `GetFeatureVolume(steamId, key)` / `SetFeatureVolume(steamId, key, volume)` | Read or save the feature override; `GetFeatureVolume` returns the configured default volume (`1.0` by default) if no override is stored, **not** the global volume. The feature must be registered before setting it. |
+| `GetEffectiveVolume(steamId, key)` | Read the feature override, falling back to the global volume and then the configured default volume (`1.0` by default). Use this for playback. |
 | `GetFeatures()` | Get the registered feature keys and display names. |
 
 Setters accept only finite values between `0.0` and `1.0` and require Cookies to be available.
