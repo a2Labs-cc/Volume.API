@@ -76,8 +76,6 @@ public partial class API : BasePlugin, IPlayerVolumeAPI
             ReloadConfig
         );
 
-        
-        Core.Event.OnClientDisconnected += OnClientDisconnected;
         Core.Logger.LogInformation("[Volume.API] Plugin loaded.");
     }
 
@@ -86,10 +84,7 @@ public partial class API : BasePlugin, IPlayerVolumeAPI
         _configReloadRegistration?.Dispose();
         _configReloadRegistration = null;
 
-        
-        Core.Event.OnClientDisconnected -= OnClientDisconnected;
         Core.Menu.CloseAll();
-        _openMenus.Clear();
 
         foreach (var name in new[] { "vol", "volume" })
         {
