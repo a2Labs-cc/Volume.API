@@ -16,7 +16,7 @@ public sealed class VolumeConfig
     public int DefaultVolume { get; set; } = 10;
 }
 
-[PluginMetadata(Id = "Volume.API", Version = "1.0.1", Name = "Volume.API", Author = "aga", Description = "Shared player sound volume")]
+[PluginMetadata(Id = "Volume.API", Version = "1.0.2", Name = "Volume.API", Author = "aga", Description = "Shared player sound volume")]
 public partial class API : BasePlugin, IPlayerVolumeAPI
 {
     private readonly ConcurrentDictionary<string, VolumeFeatureInfo> _features = new(StringComparer.OrdinalIgnoreCase);
